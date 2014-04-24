@@ -1,49 +1,63 @@
 (in-package :geom)
 
-(defclass constraint ()
-  ((obj1 :accessor constraint-obj1
-	 :initform nil
-	 :initarg :obj1)
-   (obj2 :accessor constraint-obj2
-	 :initform nil
-	 :initarg :obj2)
-   (constraint-value :accessor constraint-value
-		     :initform nil
-		     :initarg :value)
-   (constraint-type :accessor constraint-type
-		    :initform nil
-		    :initarg :type)))
-
-(defmethod add-to-graph ((c constraint) (g cl-graph:graph-container))
-  (cl-graph:add-edge-between-vertexes
-   g (constraint-obj1 c) (constraint-obj2 c) :value (constraint-value c)))
-
-(defmethod make-constraint ((obj1 geometric-object) (obj2 geometric-object)
-			    (value float) (constraint-type symbol))
-  (make-instance 'constraint :obj1 obj1 :obj2 obj2 :value value :type constraint-type))
-
-(defclass constraint-schema ()
-  ((objects :accessor constraint-schema-objects
-	    :initform nil
-	    :initarg :objects)
-   (constraints :accessor constraint-schema-constraints
+(defclass polygon (geometric-object)
+  ((points :accessor polygon-points
+	   :initform nil
+	   :initarg :points)
+   (lines  :accessor polygon-lines
+	   :initform nil
+	   :initarg :lines)
+   (orientation :accessor polygon-orientation
 		:initform nil
-		:initarg :constraints)))
+		:initarg orientation)))
 
-(defmethod constraint-schema->graph ((cs constraint-schema))
-  (let ((cg (cl-graph:make-graph 'cl-graph:graph-container)))
-    (loop
-       for object in (constraint-schema-objects cs)
-       do
-	 (add-to-graph object cg))
-    (loop
-       for constraint in (constraint-schema-constraints cs)
-       do
-	 (add-to-graph constraint cg))
-    cg))
+(defun make-polygon (points-or-lines)
+  "Construct a polygon from the supplied points or lines. The argument must be a list
+with at least 3 entries which must be either ALL points or ALL lines."
+  (when (< (length points-or-lines) 3)
+    (error 'geometry-error :error-text "Need at least 3 points to make a polygon!"))
+  (with-valid-geometry (points-or-lines)
+    (let ((new-polygon (make-instance 'polygon)))
+      (setf points-or-lines (reverse points-or-lines))
+      (cond ((every #'(lambda (x)
+			(eq 'geom:point (type-of x)))
+		    points-or-lines)
+	     (loop
+		with previous-point = (first points-or-lines)
+		initially
+		  (push previous-point (polygon-points new-polygon))
+		for p in (rest points-or-lines)
+		do
+		  (pushnew p (polygon-points new-polygon) :test #'(lambda (x y) (geom= x y :tolerance 1e-8)))
+		  (push (make-line previous-point p) (polygon-lines new-polygon))
+		  (setf previous-point p)
+		finally
+		  (push (make-line p (car (last (polygon-points new-polygon)))) (polygon-lines new-polygon))))
+	    ((every #'(lambda (x)
+			(eq 'geom:line-segment (type-of x)))
+		    points-or-lines)
+	     (loop
+		for l in points-or-lines
+		do
+		  (push l (polygon-lines new-polygon))
+		  (pushnew (start-point l) (polygon-points new-polygon) 
+			   :test #'(lambda (x y) (geom= x y :tolerance 1e-8)))
+		  (pushnew (end-point l) (polygon-points new-polygon)
+			   :test #'(lambda (x y) (geom= x y :tolerance 1e-8)))))
+	    (t (error 'geometry-error :error-text "The argument must be either all points or all lines!")))
+      new-polygon)))
 
-(defmethod geometry->stl ((cs constraint-schema) &optional (terminator t))
-  (let ((line-segments (constraint-schema-objects cs)))
+(defmethod polygon->graph ((pol polygon))
+  "Transform the polygon into a graph whose nodes are points and whose
+weighted edges are line segments connecting those points"
+  (let ((g (cl-graph:make-graph 'cl-graph:graph-container)))
+    (dolist (l (polygon-lines pol))
+      (cl-graph:add-edge-between-vertexes g (start-point l) (end-point l) :value (line-segment-length l)))
+    g))
+	 
+
+(defmethod geometry->stl ((p polygon) &optional (terminator t))
+  (let ((line-segments (polygon-lines p)))
     (format nil  "~:[~;[~] ~{~A~^, ~} ~:[~;]~]"
 	    terminator
 	    (loop
@@ -52,78 +66,73 @@
 		 (geometry->stl ls nil))
 	    terminator)))
 
-(defun make-constraint-schema (objects constraints)
-  "Nice wrapper for constraint-schema"
-  (make-instance 'constraint-schema :objects objects :constraints constraints))
+(defmethod normalize-polygon-lengths ((p polygon) &optional (norm-factor (* 2 pi)))
+  (mapcar #'(lambda (x) (/ x (/ (curve-length p (length (polygon-lines p))) norm-factor)))
+	  (mapcar #'line-segment-length (polygon-lines p))))
 
-(defmethod set-height ((cs constraint-schema) (value number))
+
+(defmethod edge-index ((p polygon) (a number))
+ (car
+  (mapcar #'car
+	  (remove-if #'(lambda (x)
+			 (< (cdr x) a))
+		     (loop
+			for segment-length in (normalize-polygon-lengths p)
+			for k upfrom 0
+			summing segment-length into sum-k
+			collect (cons k sum-k))))))
+
+(defmethod curve-length ((p polygon) (i number))
   (loop
-     for obj in (constraint-schema-objects cs)
-     do
-       (set-height obj value)))
+     for segment in (polygon-lines p)
+     for j below i
+     summing (line-segment-length segment) into sum
+     finally (return sum)))
 
-(defmethod reset-schema ((cs constraint-schema))
+(defmethod normalized-curve-length ((p polygon) (i number) &optional (norm-factor (* 2 pi)))
   (loop
-     for ls in (constraint-schema-objects cs)
-     do
-       (set-coords (start-point ls) nil)
-       (set-coords (end-point ls) nil)
-       (setf (line-segment-nx ls) nil)
-       (setf (line-segment-ny ls) nil)))
+     for segment-length in (normalize-polygon-lengths p norm-factor)
+     for j below i
+     summing segment-length into sum
+     finally (return sum)))
 
-(defmethod print-object ((cs constraint-schema) stream)
-  (format stream "~{~A~^~%~}~%" (constraint-schema-objects cs)))
+(defmethod parametrize-polygon ((p polygon) (tp number))
+  (let* ((edge-bound (edge-index p tp))
+	 (p-lines (polygon-lines p))
+	 (vecs-to-sum (mapcar #'line-segment->vector
+			      (subseq p-lines 0 edge-bound))))
+    ;;(format t "~A~%" vecs-to-sum)
+    (v+
+     (if vecs-to-sum
+	 (apply #'vec-sum vecs-to-sum)
+	 (make-vec3 0 0 0))
+     (v* 
+      (line-segment->vector (nth edge-bound (polygon-lines p)))
+      (- tp (normalized-curve-length p edge-bound))))))
+      
 
-(defmethod geometry->points ((cs constraint-schema))
-  (loop
-     for obj in (constraint-schema-objects cs)
-     append
-       (geometry->points obj)))
+(defmethod geometry->points ((p polygon))
+  (polygon-points p))
 
-(defun build-schema-from-list (lines constraint-pairs)
-  "lines is a list of two-item lists whose first item is the name of the line segment
-and whose second item is the length. constraints is a list of three-item lists whose 
-first and second items are the names of the two line segments and whose third item
-is the angle between them.
-e.g.: ((l1 10.0) (l2 15.0)) and ((l1 l2 90.0))"
-  (let ((segment-table (make-hash-table)))
-    ;; build a hash table of the line-segment objects using their name as the key
-    (let* ((objects
-	    (loop
-	       for item in lines
-	       collect
-		 (let* ((key (first item))
-			(l (second item))
-			(new-line (make-line (make-point) (make-point) l)))
-		   (setf (gethash key segment-table) new-line)
-		   new-line)))
-	   ;; set the constraints - keys supplied in the constraints must match those supplied
-	   ;; in lines or terrible things will happen
-	   (constraints
-	    (loop
-	       for item in constraint-pairs
-	       collect
-		 (let ((ls1 (gethash (first item) segment-table))
-		       (ls2 (gethash (second item) segment-table)))
-		   (make-constraint ls1 ls2 (third item) :angle)))))
-      (make-constraint-schema objects constraints))))
 
-(defmethod centroid ((cs constraint-schema))
-  (centroid (constraint-schema-objects cs)))
+(defmethod centroid ((p polygon))
+  (centroid (polygon-points p)))
 
-(defmethod rotate-object ((cs constraint-schema) (angle number) (ref-point point))
-  (rotate-objects (constraint-schema-objects cs) angle ref-point))
+(defmethod rotate-object ((p polygon) (angle number) (ref-point point))
+  (rotate-objects (polygon-points p) angle ref-point)
+  (rotate-objects (polygon-lines p) angle ref-point))
 
-(defmethod dump-object ((cs constraint-schema) (output-file string))
+(defmethod dump-object ((p polygon) (output-file string))
   (with-open-file (stream output-file :if-exists :supersede :direction :output)
     (format stream "~{~A~^,~}~%" '(x-start y-start x-end y-end))
     (loop
-       for ls in (constraint-schema-objects cs)
+       for ls in (polygon-lines p)
        do
 	 (format stream "~{~,2F~^,~}~%" (list (point-x (start-point ls))
 					      (point-y (start-point ls))
 					      (point-x (end-point ls))
 					      (point-y (end-point ls)))))))
 
-(defmethod reflect-object ((cs constraint-schema) (ref-line line-segment))
-  (reflect-objects (constraint-schema-objects cs) ref-line))
+(defmethod reflect-object ((p polygon) (ref-line line-segment))
+  (reflect-objects (polygon-lines p) ref-line)
+  (reflect-objects (polygon-points p) ref-line))

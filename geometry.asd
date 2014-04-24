@@ -7,8 +7,8 @@
   :version "0.1"
   :author "Jerry Vinokurov <jerryv@cmu.edu>"
   :license "GPL v3"
-  :defsystem-depends-on (#:gsll #:cl-graph #:lisp-unit)
-  :depends-on (#:gsll #:antik #:lisp-unit)
+  :defsystem-depends-on (#:gsll #:cl-graph #:lisp-unit2)
+  :depends-on (#:gsll #:antik #:lisp-unit2)
   :components 
   ((:module objects
 	    :components
@@ -33,10 +33,17 @@
 
 (defpackage :geometry
   (:nicknames :geom)
-  (:use :cl :asdf :gsll :lisp-unit)
+  (:use :cl :asdf :gsll :lisp-unit2)
+  (:shadow :norm)
   (:documentation "A general purpose geometry library. Includes support for points, 
 line segments, polygons, 3-vectors, 4-vectors, quaternions, and hopefully lots more")
-  (:export #:make-line
+  (:export #:point
+	   #:point-x
+	   #:point-y
+	   #:point-z
+	   #:line-segment
+	   #:distance
+	   #:make-line
 	   #:make-point
 	   #:start-point
 	   #:end-point

@@ -100,8 +100,7 @@
   (with-valid-geometry ((list p1 p2))
     (if (and (< (abs (- (point-x p1) (point-x p2))) tolerance)
 	     (< (abs (- (point-y p1) (point-y p2))) tolerance)
-	     (or (not 3d) 
-		 (< (abs (- (point-z p1) (point-z p2))) tolerance)))
+	     (< (abs (- (point-z p1) (point-z p2))) tolerance))
 	t
 	nil)))
 
@@ -169,3 +168,7 @@ rotate-point-2d function in that it operates in-place, and so does not return an
        for p in pset
        do
 	 (format stream "~F, ~F, ~F~%" (point-x p) (point-y p) (point-z p)))))
+
+(defmethod geometry->stl ((p point) &optional terminator)
+  (declare (ignore terminator))
+  (format nil "{x: ~F, y: ~F, z: ~F}" (point-x p) (point-y p) (point-z p)))

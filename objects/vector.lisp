@@ -77,7 +77,7 @@
 (defmacro with-equal-size-vectors ((vectors) &rest body)
   (let ((g (gensym)))
     `(progn
-       (print ,vectors)
+       ;;(print ,vectors)
        (let ((,g (remove-duplicates (mapcar #'vec-size ,vectors) :test #'=)))
 	 (when (> (length ,g) 1)
 	   (error 'unequal-vectors :geometry-object ,vectors
@@ -101,6 +101,20 @@
 		for i below (vec-size v1)
 		collect (+ (v-ref v1 i) (v-ref v2 i)))))
 	(make-vect new-values)))))
+
+(defmethod v- ((v1 vect) (v2 vect))
+  (v+ v1 (v* v2 -1)))
+
+(defun vec-sum (&rest vectors)
+  (loop
+     with sum = nil
+     for vec in vectors
+     do
+       (if sum
+	   (setf sum (v+ sum vec))
+	   (setf sum vec))
+     finally
+       (return sum)))
 
 (defmethod v+ ((v vect) (s number))
   "Strictly speaking the addition of a vector and a scalar is not a proper operation.

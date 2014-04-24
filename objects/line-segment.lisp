@@ -34,8 +34,8 @@
   (declare (ignore args))
   (when (and (is-geom-valid? (start-point ls))
 	     (is-geom-valid? (end-point ls)))
-    (pprint-geom (start-point ls))
-    (pprint-geom (end-point ls))
+    ;;(print (start-point ls))
+    ;;(print (end-point ls))
     (let* ((pd (difference (start-point ls) (end-point ls)))
 	   (m
 	    (if (not (= (point-x pd) 0))
@@ -131,7 +131,7 @@ is not the argument. If some random point is passed in, return nil."
     (format nil "~:[~;[~] ~{~A~^, ~} ~:[~;]~]" terminator (geometry->stl (list ll ul lr ur)) terminator)))
 
 (defmethod print-object ((ls line-segment) stream)
-  (format nil "{~S -> ~S}" (start-point ls) (end-point ls)))
+  (format stream "{~S -> ~S}" (start-point ls) (end-point ls)))
 
 (defmethod intersect? ((ls1 line-segment) (ls2 line-segment))
   (with-valid-geometry ((list ls1 ls2))
@@ -192,6 +192,12 @@ element 2 is the ls2 corner (1-indexed) etc."
 	      append
 		(list c1 c2))))))
 
+(defmethod line-segment->vector ((ls line-segment))
+  (v- (point->vector (end-point ls))
+      (point->vector (start-point ls))))
+
+;;(defmethod line-segment->vector ((list-of-segments list))
+;;  (mapcar #'
 	   
 (defmethod line-segment-midpoint (ls)
   (with-valid-geometry (ls)
