@@ -222,6 +222,16 @@ element 2 is the ls2 corner (1-indexed) etc."
 	   (segment-to-point-distances list-of-segments ref-point)
 	   #'> :key #'second))))
 
+(defmethod intermediate-point ((ls line-segment) (d number))
+  "Return the coordinates of a point that is a distance d away from the start-point of the segment."
+  (let* ((tp (/ d (line-segment-length ls)))
+	 (a (point-x (start-point ls)))
+	 (b (point-y (start-point ls)))
+	 (c (point-x (end-point ls)))
+	 (d (point-y (end-point ls)))
+	 (x (+ (* (- 1 tp) a) (* tp c)))
+	 (y (+ (* (- 1 tp) b) (* tp d))))
+    (make-point x y 0)))
 
 (defmethod extend-line ((ls line-segment) (extend-by number))
   "Extend a line by a given distance beyond its end-point."

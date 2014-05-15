@@ -1,6 +1,25 @@
 
 (in-package :geom)
 
+(defun sgn (x)
+  (assert (numberp x))
+  (cond ((= x 0)
+	 '0)
+	((> x 0)
+	 '+)
+	((< x 0)
+	 '-)))
+
+(defun sgn-numeric (x)
+  (assert (numberp x))
+  (cond ((= x 0)
+	 0)
+	((> x 0)
+	 1)
+	((< x 0)
+	 -1)))
+
+
 (defun d/dx (f-of-x x0 &optional (h 1e-8))
   "Take the numerical derivative of a function sampled at x0, with an optional h"
   ())

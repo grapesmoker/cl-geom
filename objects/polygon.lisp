@@ -11,14 +11,19 @@
 		:initform nil
 		:initarg orientation)))
 
-(defun make-polygon (points-or-lines)
+(defun make-polygon (points-or-lines &optional (closed t))
   "Construct a polygon from the supplied points or lines. The argument must be a list
-with at least 3 entries which must be either ALL points or ALL lines."
-  (when (< (length points-or-lines) 3)
+with at least 3 entries which must be either ALL points or ALL lines. If the closed 
+parameter is set to nil, the final point of the polygon will not be joined with the
+first point, resulting in a polyline."
+  (when (and (< (length points-or-lines) 3)
+	     (every #'(lambda (x)
+			(eq 'geom:point (type-of x)))
+		    points-or-lines))
     (error 'geometry-error :error-text "Need at least 3 points to make a polygon!"))
   (with-valid-geometry (points-or-lines)
     (let ((new-polygon (make-instance 'polygon)))
-      (setf points-or-lines (reverse points-or-lines))
+      ;;(setf points-or-lines (reverse points-or-lines))
       (cond ((every #'(lambda (x)
 			(eq 'geom:point (type-of x)))
 		    points-or-lines)
@@ -32,7 +37,8 @@ with at least 3 entries which must be either ALL points or ALL lines."
 		  (push (make-line previous-point p) (polygon-lines new-polygon))
 		  (setf previous-point p)
 		finally
-		  (push (make-line p (car (last (polygon-points new-polygon)))) (polygon-lines new-polygon))))
+		  (when closed
+		    (push (make-line p (car (last (polygon-points new-polygon)))) (polygon-lines new-polygon)))))
 	    ((every #'(lambda (x)
 			(eq 'geom:line-segment (type-of x)))
 		    points-or-lines)
@@ -45,7 +51,33 @@ with at least 3 entries which must be either ALL points or ALL lines."
 		  (pushnew (end-point l) (polygon-points new-polygon)
 			   :test #'(lambda (x y) (geom= x y :tolerance 1e-8)))))
 	    (t (error 'geometry-error :error-text "The argument must be either all points or all lines!")))
+      (setf (polygon-lines new-polygon) (reverse (polygon-lines new-polygon)))
+      (setf (polygon-points new-polygon) (reverse (polygon-points new-polygon)))
       new-polygon)))
+
+(defun load-polygon-from-file (filename)
+  (with-open-file (stream filename)
+    (make-polygon 
+     (loop
+	for line = (read-line stream nil nil)
+	while line
+	collect
+	  (let ((coords 
+		 (mapcar #'read-from-string 
+			 (remove-if #'(lambda (x) (string= x ""))
+				    (cl-ppcre:split "\\s+" line)))))
+	    (make-point (first coords) (second coords) 0))))))
+
+(defmethod polygon-subsection ((p polygon) (start-segment fixnum) (number-of-segments fixnum) &optional (closed nil))
+  "Return a polyline beginning with the segment indexed start and ending with the segment end, inclusive."
+  (cond ((> number-of-segments (length (polygon-lines p)))
+	 (make-polygon (polygon-lines p)))
+	((> (+ start-segment number-of-segments) (length (polygon-lines p)))
+	 (make-polygon (subseq (comb:rotate-list (polygon-lines p)
+						 (- start-segment (length (polygon-lines p))))
+			       0 number-of-segments)))
+	(t 
+	 (make-polygon (subseq (polygon-lines p) start-segment (+ start-segment number-of-segments)) closed))))
 
 (defmethod polygon->graph ((pol polygon))
   "Transform the polygon into a graph whose nodes are points and whose
@@ -54,7 +86,13 @@ weighted edges are line segments connecting those points"
     (dolist (l (polygon-lines pol))
       (cl-graph:add-edge-between-vertexes g (start-point l) (end-point l) :value (line-segment-length l)))
     g))
-	 
+
+(defmethod polygon-closed? ((p polygon))
+  (or (eq (start-point (first (polygon-lines p)))
+	  (end-point (first (last (polygon-lines p)))))
+      (geom= (start-point (first (polygon-lines p)))
+	     (end-point (first (last (polygon-lines p)))))))
+  
 
 (defmethod geometry->stl ((p polygon) &optional (terminator t))
   (let ((line-segments (polygon-lines p)))
@@ -65,6 +103,9 @@ weighted edges are line segments connecting those points"
 	       collect
 		 (geometry->stl ls nil))
 	    terminator)))
+
+(defmethod polygon-perimeter ((p polygon))
+  (apply #'+ (mapcar #'line-segment-length (polygon-lines p))))
 
 (defmethod normalize-polygon-lengths ((p polygon) &optional (norm-factor (* 2 pi)))
   (mapcar #'(lambda (x) (/ x (/ (curve-length p (length (polygon-lines p))) norm-factor)))
@@ -122,6 +163,10 @@ weighted edges are line segments connecting those points"
   (rotate-objects (polygon-points p) angle ref-point)
   (rotate-objects (polygon-lines p) angle ref-point))
 
+(defmethod print-object ((p polygon) stream)
+  (format stream "<#POLYGON (~{~A~^~% ~})>" (polygon-lines p)))
+
+
 (defmethod dump-object ((p polygon) (output-file string))
   (with-open-file (stream output-file :if-exists :supersede :direction :output)
     (format stream "~{~A~^,~}~%" '(x-start y-start x-end y-end))
@@ -136,3 +181,5 @@ weighted edges are line segments connecting those points"
 (defmethod reflect-object ((p polygon) (ref-line line-segment))
   (reflect-objects (polygon-lines p) ref-line)
   (reflect-objects (polygon-points p) ref-line))
+
+
