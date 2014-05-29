@@ -121,6 +121,24 @@ is not the argument. If some random point is passed in, return nil."
 	      append (list (start-point seg) (end-point seg)))))
       (point-centroid points))))
 
+(defmethod distance ((ls line-segment) (p point))
+  (let* ((v (line-segment->vector ls))
+	 (w (v- (point->vector p)
+		(point->vector (start-point ls))))
+	 (c1 (v-dot v w))
+	 (c2 (v-dot v v)))
+    (cond ((<= c1 0)
+	   (distance p (start-point ls)))
+	  ((<= c2 c1)
+	   (distance p (end-point ls)))
+	  (t
+	   (let* ((b (/ c1 c2))
+		  (pb (translate (v* v b) (start-point ls))))
+	     (distance p pb))))))
+
+(defmethod distance ((p point) (ls line-segment))
+  (distance ls p))
+
 (defmethod geometry->stl ((ls line-segment) &optional (terminator t))
   (let* ((sp (start-point ls))
 	 (ep (end-point ls))

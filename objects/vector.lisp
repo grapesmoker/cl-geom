@@ -72,6 +72,9 @@
   "Given a vector, return the point to which that vector points. Points are 3D."
   (make-point (vec3-x v) (vec3-y v) (vec3-z v)))
 
+(defmethod vector->point ((v vect))
+  (make-point (v-ref v 0) (v-ref v 1) (v-ref v 2)))
+
 ;; it's often a good idea to make sure all your vectors are the same size
 
 (defmacro with-equal-size-vectors ((vectors) &rest body)

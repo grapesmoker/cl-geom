@@ -107,6 +107,24 @@ weighted edges are line segments connecting those points"
 (defmethod polygon-perimeter ((p polygon))
   (apply #'+ (mapcar #'line-segment-length (polygon-lines p))))
 
+(defmethod polygon-area ((p polygon))
+  (loop
+     with first-point = (first (polygon-points p))
+     with prev-point = (first (polygon-points p))
+     for current-point in (rest (polygon-points p))
+     summing
+       (- (* (point-x prev-point) (point-y current-point))
+	  (* (point-x current-point) (point-y prev-point)))
+     into area
+     do
+       (setf prev-point current-point)
+     finally
+       (return (abs (* 0.5 (+ area 
+			      (- (* (point-x current-point) (point-y first-point))
+				 (* (point-x first-point) (point-y current-point)))))))))
+
+
+
 (defmethod normalize-polygon-lengths ((p polygon) &optional (norm-factor (* 2 pi)))
   (mapcar #'(lambda (x) (/ x (/ (curve-length p (length (polygon-lines p))) norm-factor)))
 	  (mapcar #'line-segment-length (polygon-lines p))))
@@ -157,7 +175,7 @@ weighted edges are line segments connecting those points"
 
 
 (defmethod centroid ((p polygon))
-  (centroid (polygon-points p)))
+  (point-centroid (polygon-points p)))
 
 (defmethod rotate-object ((p polygon) (angle number) (ref-point point))
   (rotate-objects (polygon-points p) angle ref-point)

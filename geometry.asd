@@ -26,6 +26,7 @@
 	    :depends-on (objects)
 	    :components
 	    ((:file "numerical-methods")
+	     (:file "polyline-matching")
 	     (:file "icp" :depends-on ("numerical-methods"))
 	     (:file "constraint")
 	     (:file "solver" :depends-on ("constraint"))))))
