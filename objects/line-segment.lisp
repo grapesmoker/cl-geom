@@ -80,7 +80,11 @@
   (set-coords (end-point ls) end-point)
   (compute-line-parameters ls))
   
-  
+
+(defmethod set-height ((ls line-segment) height)
+  (setf (point-z (start-point ls)) height)
+  (setf (point-z (end-point ls)) height))
+
 (defmethod set-endpoints ((ls line-segment) (start-point point) (end-point point))
   "Set the endpoints of the line segment. It's important to note that this does not *just* set
 the endpoint coordinates, but actually sets the objects passed as endpoints. To set the
@@ -289,3 +293,143 @@ element 2 is the ls2 corner (1-indexed) etc."
 	 (make-point (+ (point-x sp) (* i dx))
 		     (+ (point-y sp) (* i dy))
 		     (+ (point-z sp) (* i dz))))))
+
+(defun share-corners? (ls1 ls2 &key (corner-radius 1.0))
+  (declare (type line-segment ls1 ls2))
+  (when (and (is-geom-valid? ls1)
+	     (is-geom-valid? ls2))
+    (let ((corners1 (list (start-point ls1) (end-point ls1)))
+	  (corners2 (list (start-point ls2) (end-point ls2))))
+      (loop
+	 for c1 in corners1
+	 if (loop
+	       for c2 in corners2
+	       if (<= (distance c1 c2) corner-radius)
+	       do
+		 (return t))
+	 do
+	   (return t)))))
+
+(defun which-common-corners? (ls1 ls2 &key (corner-radius 1.0))
+  "Return the common corners of ls1 and ls2 in a list. Element 1 is the ls1 corner,
+element 2 is the ls2 corner (1-indexed) etc."
+  (declare (type line-segment ls1 ls2))
+  (let ((corners1 (list (start-point ls1) (end-point ls1)))
+	(corners2 (list (start-point ls2) (end-point ls2))))
+    (loop
+       for c1 in corners1
+       append
+	 (loop
+	    for c2 in corners2
+	    if (<= (distance c1 c2) corner-radius)
+	    append
+	      (list c1 c2)))))
+
+
+(defun how-many-shared-corners? (this-line other-lines &key (corner-radius 1.0))
+  (declare (type line-segment this-line))
+  (declare (type list other-lines))
+  (loop
+     for other-line in other-lines
+     if (share-corners? this-line other-line :corner-radius corner-radius)
+     sum 1 into shared-corners
+     finally (return shared-corners)))
+
+(defun sort-line-segments-contiguous (list-of-segments)
+  ;;(declare (optimize (debug 3)))
+  (format t "sorting segments: ~A~%" list-of-segments)
+  (setf list-of-segments (remove-if-not #'is-geom-valid? list-of-segments))
+  (if (> (length list-of-segments) 1)
+      (progn
+	(format t "sorting segments: ~A~%" list-of-segments)
+	(let* ((first-ls
+		(or
+		 (loop
+		    for ls in list-of-segments
+		    if (= (how-many-shared-corners?
+			   ls
+			   (remove-if #'(lambda (x) (geom= ls x)) list-of-segments))
+			  1)
+		    do
+		      (return ls))
+		 ;; if we get here that means that all the different pieces are connected
+		 (first list-of-segments)))
+	       (rest-of-lines
+		(loop
+		   with current-ls = first-ls
+		   with remaining-ls = (remove-if #'(lambda (x) (geom= current-ls x)) list-of-segments)
+		   while remaining-ls
+		   
+		     ;;(format t "current-ls: ~A~%" current-ls)
+		   collect
+		     (loop
+			for ls in remaining-ls
+			if (or (share-corners? current-ls ls)
+			       (= (how-many-shared-corners? current-ls remaining-ls) 0))
+			do
+			  ;;(format t "remaining-ls: ~A~%current-ls: ~A~%" remaining-ls current-ls)
+			  ;;(format t "corners shared: ~D~%" (how-many-shared-corners? current-ls remaining-ls))
+			  (if (> (how-many-shared-corners? current-ls remaining-ls) 0)
+			      (progn
+				(setf current-ls ls)
+				(setf remaining-ls
+				      (remove-if #'(lambda (x)
+						     (geom= current-ls x)) remaining-ls)))
+			      (setf remaining-ls
+				    (remove-if #'(lambda (x)
+						   (geom= ls x)) remaining-ls)))
+
+			  (return ls)))))
+	  ;;(format t "first-ls: ~A~%rest of lines: ~A~%" first-ls rest-of-lines)
+	  ;;(format t "sorted list: ~A~%" (append (list first-ls) rest-of-lines))
+	  (append (list first-ls) rest-of-lines)))
+      list-of-segments))
+
+(defun align-line-segment-ends-in-place (list-of-sorted-segments)
+  "The idea behind this fuction is that the startpoint of the next segment in a contiguous
+chain is always the endpoint of the previous segment. If that's *not true*, but the segments
+are still contiguous (as assured by the sorter) then what happened is that at some point
+we have end-end corners and start-start corners, and those break the solver. So this function
+fixes that by finding end-end and start-start corners and flipping them as appropriate. Note
+that because the list is sorted, the first segment of the list is guaranteed to have only
+one corner in common with its neighbor; if that corner is not the endpoint, we swap and move on.
+Also, this function operates in place, so its return value is nil."
+
+  (loop
+     with previous-ls = nil
+     for ls in list-of-sorted-segments
+     do
+       ;;(format t "ls: ~A~%" ls)
+       (when previous-ls
+	 ;; assume that no two segments share no more than a single common corner
+	 (let* ((common-corners (which-common-corners? ls previous-ls))
+		(cc (first common-corners)))
+	   ;;(format t "common corners: ~A~%" common-corners)
+           ;;(format t "cc = start-point of previous-ls?: ~A~%" (geom= cc (start-point previous-ls) :tolerance 0.5))
+	   (if (geom= cc (start-point previous-ls) :tolerance 1.0)
+               (swap-ends previous-ls))
+	   (if (geom= cc (end-point ls) :tolerance 1.0)
+	       (swap-ends ls))))
+       (setf previous-ls ls)))
+
+(defun align-line-segment-ends (list-of-sorted-segments)
+  (let ((segment-copies
+         (loop
+            for ls in list-of-sorted-segments
+            collect
+              (copy-geometry ls))))
+    (align-line-segment-ends-in-place segment-copies)
+    segment-copies))
+
+(defmethod extend-line-in-place ((ls line-segment) (extend-by number))
+  (let* ((dx (- (point-x (end-point ls)) (point-x (start-point ls))))
+	 (dy (- (point-y (end-point ls)) (point-y (start-point ls))))
+	 (l (line-segment-length ls))
+	 (cx (+ (point-x (end-point ls)) (* (/ dx l) extend-by)))
+	 (cy (+ (point-y (end-point ls)) (* (/ dy l) extend-by))))
+    (set-coords (end-point ls) `(,(cons :x cx) ,(cons :y cy) ,(cons :z (point-z (start-point ls)))))))
+
+(defmethod extend-line ((ls line-segment) (extend-by number))
+  (let* ((new-line (copy-geometry ls)))
+    (extend-line-in-place new-line extend-by)
+    new-line))

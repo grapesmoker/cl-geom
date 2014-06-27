@@ -138,7 +138,7 @@ metric from the original Kuijpers et al. paper."
        collect
 	 (count k flat-dcm :test #'equalp))))
 
-(defmethod polyline-similarity ((p1 polygon) (p2 polygon) &key (epsilon 0.01) (simfunc #'dc-similarity-h))
+(defmethod polyline-similarity ((p1 polygon) (p2 polygon) &key (epsilon 0.01) (simfunc #'dc-similarity-e))
   (loop
      for n upfrom 3
      with current-p1 = (generalized-polyline p1 2)
@@ -148,6 +148,10 @@ metric from the original Kuijpers et al. paper."
      do
        (setf current-p1 (generalized-polyline p1 n))
        (setf current-p2 (generalized-polyline p2 n))
+       ;;(print current-p1)
+       ;;(print current-p2)
+       (format t "~F ~F~%" (polygon-perimeter current-p1) (polygon-perimeter p1))
+       (format t "~F ~F~%" (polygon-perimeter current-p2) (polygon-perimeter p2))
        ;;(print n)
      finally
        (let ((dcm1 (dc-matrix current-p1))

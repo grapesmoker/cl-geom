@@ -124,18 +124,18 @@
 	(q1 (quat-x q))
 	(q2 (quat-y q))
 	(q3 (quat-z q))
-	(matrix (make-array '(3 3) :element-type 'number)))
-    (setf (aref matrix 0 0) (+ (expt q0 2) (expt q1 2) (- (expt q2 2)) (- (expt q3 2))))
-    (setf (aref matrix 0 1) (* 2 (- (* q1 q2) (* q0 q3))))
-    (setf (aref matrix 0 2) (* 2 (+ (* q1 q3) (* q0 q2))))
+	(matrix (make-matrix 3 3)))
+    (setf (m-ref matrix 0 0) (+ (expt q0 2) (expt q1 2) (- (expt q2 2)) (- (expt q3 2))))
+    (setf (m-ref matrix 0 1) (* 2 (- (* q1 q2) (* q0 q3))))
+    (setf (m-ref matrix 0 2) (* 2 (+ (* q1 q3) (* q0 q2))))
 
-    (setf (aref matrix 1 0) (* 2 (+ (* q1 q2) (* q0 q3))))
-    (setf (aref matrix 1 1) (+ (expt q0 2) (- (expt q1 2)) (expt q2 2) (- (expt q3 2))))
-    (setf (aref matrix 1 2) (* 2 (- (* q2 q3) (* q0 q1))))
+    (setf (m-ref matrix 1 0) (* 2 (+ (* q1 q2) (* q0 q3))))
+    (setf (m-ref matrix 1 1) (+ (expt q0 2) (- (expt q1 2)) (expt q2 2) (- (expt q3 2))))
+    (setf (m-ref matrix 1 2) (* 2 (- (* q2 q3) (* q0 q1))))
 
-    (setf (aref matrix 2 0) (* 2 (- (* q1 q3) (* q0 q2))))
-    (setf (aref matrix 2 1) (* 2 (+ (* q2 q3) (* q0 q1))))
-    (setf (aref matrix 2 2) (+ (expt q0 2) (- (expt q1 2)) (- (expt q2 2)) (expt q3 2)))
+    (setf (m-ref matrix 2 0) (* 2 (- (* q1 q3) (* q0 q2))))
+    (setf (m-ref matrix 2 1) (* 2 (+ (* q2 q3) (* q0 q1))))
+    (setf (m-ref matrix 2 2) (+ (expt q0 2) (- (expt q1 2)) (- (expt q2 2)) (expt q3 2)))
 
     matrix))
     

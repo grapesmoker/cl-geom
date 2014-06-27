@@ -143,6 +143,11 @@ rotate-point-2d function in that it operates in-place, and so does not return an
       (setf (point-x point-to-rotate) px)
       (setf (point-y point-to-rotate) py)))
 
+(defmethod rotate-point-2d ((point-to-rotate point) (theta number) (ref-point point))
+  (let ((p-copy (copy-geometry point-to-rotate)))
+    (rotate-object p-copy theta ref-point)
+    p-copy))
+
 (defmethod geometry->points ((p point))
   (list p))
 
@@ -172,3 +177,6 @@ rotate-point-2d function in that it operates in-place, and so does not return an
 (defmethod geometry->stl ((p point) &optional terminator)
   (declare (ignore terminator))
   (format nil "{x: ~F, y: ~F, z: ~F}" (point-x p) (point-y p) (point-z p)))
+
+(defmethod set-height ((p point) (value number))
+  (setf (point-z p) value))

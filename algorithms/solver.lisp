@@ -330,9 +330,8 @@ is answered by drawing a ray from the robot to the point and seeing if it inters
 any of the visible line segments."
   (declare (type point p robot-coords))
   (declare (type list visible-segments))
-  (let ((view-ls (make-line (make-point (point-x p) (point-y p))
-			    (make-point (point-x robot-coords) (point-y robot-coords))
-			    0.0)))
+  (let ((view-ls (make-line (make-point (point-x p) (point-y p) 0.0)
+			    (make-point (point-x robot-coords) (point-y robot-coords) 0.0))))
     (loop
        for visible-ls in visible-segments
        if (intersect? view-ls (node->geometry visible-ls))

@@ -9,7 +9,7 @@
 	  for m in model-points
 	  collect `(,d ,m))))
 
-(defun multipass-icp (data-points model-points &key (threshold 0.01) (method :svd) (robot-coords nil))
+(defun multipass-icp (data-points model-points &key (threshold 0.01) (method :svd) (robot-coords nil) (vis-penalty 0.25))
   "The data is so sparse that ICP gets stuck in local minima. The idea here is to take every possible aligned
 subset of the model and find the match that gets us the closest. The method parameter indicates what method
 to use; either :svd (singular value decomposition) or :quaternion are acceptable. In 2D, SVD seems to work
@@ -24,61 +24,84 @@ best, converging almost instantaneously."
 	 (num-model-points (length model-points))
 	 (data-copy (loop for p in data-points collect (copy-geometry p)))
 	 (data-model-alignments
-	  (loop
+	  (append
+	   (loop
 	     for i from 0 to (- num-model-points 1)
 	     collect
-	       (list data-points (subseq (cl-user::rotate-list model-points i) 0 num-data-points)))))
+	       (list data-points (subseq (cl-user::rotate-list model-points i) 0 (min num-data-points (length model-points)))))
+	   (loop
+	      for i from 0 to (- num-model-points 1)
+	      collect
+		(list (reverse data-points) (subseq (cl-user::rotate-list model-points i) 0 (min num-data-points (length model-points))))))))
+	 ;;(num-alignments (length data-model-alignments)))
+    ;; (format t "data-model alignments: ~A~%" data-model-alignments)
     (loop
        with current-error = 1e10
        with current-params = nil
+       for counter upfrom 1
        for data-model-pairing in data-model-alignments
        do
-	 (format t "data set: ~A~%" (first data-model-pairing))
-	 (format t "model set: ~A~%" (second data-model-pairing))
-	 (let* ((data (loop for p in data-copy collect (copy-geometry p)))
+	 ;; (format t "data set: ~A~%" (first data-model-pairing))
+	 ;; (format t "model set: ~A~%" (second data-model-pairing))
+         (log:debug "*************************** (start of icp cycle) *****************************")
+         (log:debug "current-error at start of pass: ~F" current-error)
+	 (let* ((data 
+                 (mapcar #'copy-geometry (first data-model-pairing)))
 		(model (second data-model-pairing))
 		(icp-steps (icp data model :threshold threshold :method method))
 		(final-error (third (first (last icp-steps)))))
-	   (format t "result: ~A~%" icp-steps)
+	   (log:debug "data: ~A" data-copy)
+           (log:debug "model: ~A" model)
+	   (log:debug "counter: ~D" counter)
+	   ;; (format t "result: ~A~%" icp-steps)
 	   ;; here we check to see if we got the `wrong' orientation and penalize accordingly
 	   (when robot-coords
-	     (format t "checking to make sure we didn't end up too close to the robot~%")
-	     (let* ((model-copy (mapcar #'copy-geometry model-points))
+	     (log:debug "checking to make sure we didn't end up too close to the robot")
+	     (let* ((model-copy 
+                     (remove-if #'(lambda (x) 
+                                    (member x model :test #'geom=))
+                                (mapcar #'copy-geometry model-points)))
 		    (visible-segments 
 		     (loop
 			with previous-point = nil
 			for p in data-copy
 			when previous-point
 			collect
-			  (make-line previous-point p 0.0)
+			  (make-line previous-point p)
 			do
 			  (setf previous-point p))))
+	       (log:debug "visible segments: ~A" visible-segments)
 	       (apply-inverse-transformation-list icp-steps model-copy)
 	       ;; remove any results that overlap with data we already have
 	       ;; the idea is to have only the points left over that are from
 	       ;; the model
-	       (setf model-copy
-		     (remove-if #'(lambda (x)
-				    (member x data-copy :test #'geom=))
-				model-copy))
+	       ;; (setf model-copy
+	       ;; 	     (remove-if #'(lambda (x)
+	       ;; 			    (member x data-copy :test #'geom=))
+	       ;; 			model-copy))
 	       (let* ((penalty
 		       (loop
 			  for mp in model-copy
+			  do (log:debug "point ~A visible from ~A?: ~A"
+				     mp robot-coords (is-point-visible? mp robot-coords visible-segments))
 			  if (is-point-visible? mp robot-coords visible-segments)
-			  sum 1 into penalty
+			  sum vis-penalty into penalty
 			  finally (return penalty))))
-		 (format t "penalized this orientation by ~F~%" penalty)
+		 (log:debug "penalized this orientation by ~F" penalty)
 		 (setf final-error (+ final-error penalty)))))
 	      
 	   (if (< final-error current-error)
 	       (progn
 		 (setf current-error final-error)
-		 (setf current-params icp-steps))))
+		 (setf current-params icp-steps)
+                 (log:debug "current params: ~A" current-params)
+                 ;;(setf (third current-params) final-error)
+		 (log:debug "final error: ~F" current-error))))
        finally (return (values current-params current-error)))))
 	      
 
 (defun icp (data-points model-points &key 
-	    (initial-translation-guess (make-vect 0 0 0)) 
+	    (initial-translation-guess (make-vect '(0 0 0)))
 	    (initial-rotation-guess (make-quaternion 1 0 0 0))
 	    (threshold 0.05)
 	    (method :svd))
@@ -125,11 +148,13 @@ our purposes."
 	      (model-centroid (point-centroid model-points))
 	      (data-centroid-v (point->vector data-centroid))
 	      (model-centroid-v (point->vector model-centroid))
-	      (ident (make-array '(3 3) :element-type 'number :initial-contents '((1 0 0) (0 1 0) (0 0 1))))
+	      (ident (ident-matrix 3))
+	      ;;(ident (make-matrix 3 3 '((1 0 0) (0 1 0) (0 0 1))))
+	      ;;(ident (make-array '(3 3) :element-type 'number :initial-contents '((1 0 0) (0 1 0) (0 0 1))))
 	      (cross-covariance
 	       (mult-matrix
 		(loop
-		   with result-tp = (make-array '(3 3) :element-type 'number :initial-element 0)
+		   with result-tp = (make-matrix 3 3)
 		   for pair in point-correspondences
 		   do
 		     (let* ((dp (v+ (point->vector (first pair))
@@ -137,30 +162,36 @@ our purposes."
 			    (mp (v+ (point->vector (second pair))
 				    (v* model-centroid-v -1)))
 			    (tp (tensor-product dp mp)))
-		       (setf result-tp (add-matrices result-tp tp)))
+		       (setf result-tp (m+ result-tp tp)))
 		   finally (return result-tp))
 		(/ num-data-points)))
 	      (cross-covariance-t (transpose-matrix cross-covariance))
-	      (a (add-matrices cross-covariance
-			       (mult-matrix cross-covariance-t -1)))
-	      (delta (make-array '(3) :initial-contents `(,(aref a 1 2) ,(aref a 2 0) ,(aref a 0 1))))
-	      (q-lower (add-matrices 
-			(add-matrices cross-covariance cross-covariance-t)
+	      (a (m+ cross-covariance
+		     (mult-matrix cross-covariance-t -1)))
+	      (delta (make-vect `(,(m-ref a 1 2) ,(m-ref a 2 0) ,(m-ref a 0 1))))
+
+	      ;; (delta (make-matrix 3 1 `((,(aref a 1 2)) (,(aref a 2 0)) (,(aref a 0 1)))))
+	      ;; (delta (make-array '(3) :initial-contents `(,(aref a 1 2) ,(aref a 2 0) ,(aref a 0 1))))
+
+	      (q-lower (m+
+			(m+ cross-covariance cross-covariance-t)
 			(mult-matrix ident (- (matrix-trace cross-covariance)))))
-	      (q (make-array '(4 4) :element-type 'number :initial-element 0)))
-	 (setf (aref q 0 0) (matrix-trace cross-covariance))
+	      (q (make-matrix 4 4)))
+	      ;; (q (make-array '(4 4) :element-type 'number :initial-element 0)))
+	 (format t "debug~%")
+	 (setf (m-ref q 0 0) (matrix-trace cross-covariance))
 	 (loop
 	    for i from 1 to 3
 	    do
-	      (setf (aref q 0 i) (aref delta (- i 1)))
-	      (setf (aref q i 0) (aref delta (- i 1))))
+	      (setf (m-ref q 0 i) (v-ref delta (- i 1)))
+	      (setf (m-ref q i 0) (v-ref delta (- i 1))))
 	 (loop
 	    for i from 0 to 2
 	    do
 	      (loop
 	 	 for j from 0 to 2
 	 	 do
-	 	   (setf (aref q (+ 1 i) (+ 1 j)) (aref q-lower i j))))
+	 	   (setf (m-ref q (+ 1 i) (+ 1 j)) (m-ref q-lower i j))))
 	 ;; (format t "pairs: ~A~%" point-correspondences)
 	 ;; (format t "current error: ~F~%" current-error)
 	 (format t "cross-covariance: ~A~%" cross-covariance)
@@ -168,7 +199,7 @@ our purposes."
 	 ;; (format t "delta: ~A~%" delta)
 	 ;; (format t "q-lower: ~A~%" q-lower)
 	 (format t "q: ~A~%" q)
-	 (let* ((q-matrix (array->grid (transpose-matrix q)))
+	 (let* ((q-matrix (matrix->grid (transpose-matrix q)))
 		(rv
 		 (multiple-value-bind (eigenvalues eigenvectors)
 		     (gsl:eigenvalues-eigenvectors q-matrix)
@@ -191,10 +222,10 @@ our purposes."
 		 (normalize (make-quaternion (first rv) (second rv) (third rv) (fourth rv))))
 		(r-svd
 		 (multiple-value-bind (u sigma vt)
-		     (gsl:sv-decomposition (array->grid cross-covariance))
+		     (gsl:sv-decomposition (matrix->grid cross-covariance))
 		   (declare (ignore sigma))
-		   (setf u (grid:cl-array u))
-		   (setf vt (grid:cl-array vt))
+		   (setf u (grid->matrix u))
+		   (setf vt (grid->matrix vt))
 		   (matrix*matrix (transpose-matrix vt) (transpose-matrix u))))
 		(rq-matrix (quaternion->matrix rq))
 		(rt
@@ -370,9 +401,9 @@ application transforms model to data."
       do
 	(let ((inv-rm 
 	       (multiple-value-bind (lu perm flag)
-		   (gsl:lu-decomposition (array->grid rm))
+		   (gsl:lu-decomposition (matrix->grid rm))
 		 (declare (ignore flag))
-		 (grid:cl-array (gsl:lu-invert lu perm))))
+		 (grid->matrix (gsl:lu-invert lu perm))))
 	      (inv-rv
 	       (v* rv -1)))
 	  (loop

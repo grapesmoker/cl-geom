@@ -11,7 +11,7 @@
 		:initform nil
 		:initarg orientation)))
 
-(defun make-polygon (points-or-lines &optional (closed t))
+(defun make-polygon (points-or-lines &optional (closed t) (tolerance 1e-8))
   "Construct a polygon from the supplied points or lines. The argument must be a list
 with at least 3 entries which must be either ALL points or ALL lines. If the closed 
 parameter is set to nil, the final point of the polygon will not be joined with the
@@ -47,9 +47,9 @@ first point, resulting in a polyline."
 		do
 		  (push l (polygon-lines new-polygon))
 		  (pushnew (start-point l) (polygon-points new-polygon) 
-			   :test #'(lambda (x y) (geom= x y :tolerance 1e-8)))
+			   :test #'(lambda (x y) (geom= x y :tolerance tolerance)))
 		  (pushnew (end-point l) (polygon-points new-polygon)
-			   :test #'(lambda (x y) (geom= x y :tolerance 1e-8)))))
+			   :test #'(lambda (x y) (geom= x y :tolerance tolerance)))))
 	    (t (error 'geometry-error :error-text "The argument must be either all points or all lines!")))
       (setf (polygon-lines new-polygon) (reverse (polygon-lines new-polygon)))
       (setf (polygon-points new-polygon) (reverse (polygon-points new-polygon)))
@@ -201,3 +201,20 @@ weighted edges are line segments connecting those points"
   (reflect-objects (polygon-points p) ref-line))
 
 
+(defmethod set-height ((p polygon) (value number))
+  (loop
+     for pt in (polygon-points p)
+     do
+       (set-height pt value)))
+
+(defmethod is-valid? ((p polygon))
+  (loop
+     with valid-flag = t
+     with current-ls = (first (polygon-lines p))
+     for ls in (rest (polygon-lines p))
+     if (not (eq (end-point current-ls)
+		(start-point ls)))
+     do (setf valid-flag nil)
+     do (setf current-ls ls)
+     finally
+       (return valid-flag)))
