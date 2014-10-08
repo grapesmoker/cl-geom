@@ -180,3 +180,19 @@ rotate-point-2d function in that it operates in-place, and so does not return an
 
 (defmethod set-height ((p point) (value number))
   (setf (point-z p) value))
+
+(defmethod p+ ((p1 point) (p2 point))
+  (make-point (+ (point-x p1) (point-x p2))
+ 	      (+ (point-y p1) (point-y p2))
+ 	      (+ (point-z p1) (point-z p2))))
+
+(defmethod p- ((p1 point) (p2 point))
+  (make-point (- (point-x p1) (point-x p2))
+ 	      (- (point-y p1) (point-y p2))
+ 	      (- (point-z p1) (point-z p2))))
+
+(defmethod p*s ((p point) (s number))
+  (make-point (* (point-x p) s)
+ 	      (* (point-y p) s)
+ 	      (* (point-z p) s)))
+

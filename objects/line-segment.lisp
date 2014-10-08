@@ -157,35 +157,24 @@ is not the argument. If some random point is passed in, return nil."
 
 (defmethod intersect? ((ls1 line-segment) (ls2 line-segment))
   (with-valid-geometry ((list ls1 ls2))
-    (let* ((m1 (or (line-segment-m ls1)
-		   (/ 
-		    (- (point-y (end-point ls1)) (point-y (start-point ls1)))
-		    (- (point-x (end-point ls1)) (point-x (start-point ls1))))))
-	   (m2 (or (line-segment-m ls2)
-		   (/ 
-		    (- (point-y (end-point ls2)) (point-y (start-point ls2)))
-		    (- (point-x (end-point ls2)) (point-x (start-point ls2)))))))
-      (if (= m1 m2)
-	  (values nil (make-point))
-	  (progn
-	    (let* ((b1 (-
-			(point-y (end-point ls1))
-			(* m1 (point-x (end-point ls1)))))
-		   (b2 (-
-			(point-y (end-point ls2))
-			(* m2 (point-x (end-point ls2)))))
-		   (x-int (/
-			   (- b2 b1)
-			   (- m1 m2)))
-		   (y-int (+ (* m1 x-int) b1)))
-
-	      (if (and (>< x-int (point-x (start-point ls1)) (point-x (end-point ls1)))
-		       (>< x-int (point-x (start-point ls2)) (point-x (end-point ls2)))
-		       (>< y-int (point-y (start-point ls1)) (point-y (end-point ls1)))
-		       (>< y-int (point-y (start-point ls2)) (point-y (end-point ls2))))
-		  (values t (make-point x-int y-int))
-		  (values nil (make-point)))))))
-    (values nil (make-point))))
+    (let ((v1 (v- (point->vector (end-point ls1)) (point->vector (start-point ls1))))
+          (v2 (v- (point->vector (end-point ls2)) (point->vector (start-point ls2)))))
+      (cond ((= (v-dot (v-perp v2) v1) 0)
+             nil)
+            (t
+             (let* ((w (v- (point->vector (start-point ls1))
+                           (point->vector (start-point ls2))))
+                    (s-int (/ (- (v-dot (v-perp v2) w))
+                              (v-dot (v-perp v2) v1)))
+                    (t-int (/ (v-dot (v-perp v1) w)
+                              (v-dot (v-perp v1) v2))))
+               ;;(format t "~F ~F ~%" s-int t-int)
+               (if (and (and (<= s-int 1) (>= s-int 0))
+                        (and (<= t-int 1) (>= t-int 0)))
+                   (values t (vector->point
+                              (v+ (point->vector (start-point ls1))
+                                  (v* v1 s-int))))
+                   (values nil (make-point))))))))
 
 (defmethod copy-geometry ((ls line-segment))
   (let ((sp (copy-geometry (start-point ls)))
@@ -225,12 +214,29 @@ element 2 is the ls2 corner (1-indexed) etc."
   (with-valid-geometry (ls)
     (point-centroid (list (start-point ls) (end-point ls)))))
 
+(defmethod distance ((ls line-segment) (p point))
+  (with-valid-geometry ((list ls p))
+    (let* ((v (line-segment->vector ls))
+           (w (v- (point->vector p)
+                  (point->vector (start-point ls))))
+           (c1 (v-dot v w))
+           (c2 (v-dot v v)))
+      (cond ((<= c1 0)
+             (values (distance p (start-point ls)) (start-point ls)))
+            ((<= c2 c1)
+             (values (distance p (end-point ls)) (end-point ls)))
+            (t
+             (let* ((b (/ c1 c2))
+                    (pb (translate (v* v b) (start-point ls)))
+                    (d (distance p pb)))
+               (values d pb)))))))
+
 (defun segment-to-point-distances (list-of-segments ref-point)
   (loop
      for ls in list-of-segments
      if (is-geom-valid? ls)
      collect
-       (list ls (distance (line-segment-midpoint ls) ref-point))))
+       (list ls (distance ls ref-point))))
 
 (defun closest-segment-to-point (list-of-segments ref-point)
   (first (first
@@ -433,3 +439,23 @@ Also, this function operates in place, so its return value is nil."
   (let* ((new-line (copy-geometry ls)))
     (extend-line-in-place new-line extend-by)
     new-line))
+
+
+(defmethod is-left-of-segment? ((ls line-segment) (p point))
+  "Test if p is left of ls; needed for various algorithms."
+  (let* ((sp (start-point ls))
+         (ep (end-point ls))
+         (sp-x (point-x sp))
+         (sp-y (point-y sp))
+         (ep-x (point-x ep))
+         (ep-y (point-y ep))
+         (p-x (point-x p))
+         (p-y (point-y p))
+         (determinant
+          (- (* (- ep-x sp-x) (- p-y sp-y))
+             (* (- p-x sp-x) (- ep-y sp-y)))))
+    (if (> determinant 0)
+        t nil)))
+
+(defmethod is-left? ((p1 point) (p2 point) (p3 point))
+  (is-left-of-segment? (make-line p1 p2 0.0) p3))

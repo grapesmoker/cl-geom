@@ -273,3 +273,20 @@
     (print dim1)
     (print dim2)
     (make-matrix dim1 dim2 (array->list a))))
+
+(defun covariance-matrix (point-set)
+  "Compute the coveraiance of the set of points."
+  (let* ((centroid (point-centroid point-set))
+         (centered-points (mapcar #'(lambda (x) (v- (point->vector x) (point->vector centroid))) point-set))
+         (num-points (length centered-points))
+         (covariance
+          (mult-matrix 
+           (loop
+              with result-tp = (make-array '(3 3) :element-type 'number :initial-element 0)
+              for pt in centered-points
+              do
+                (let* ((tp (tensor-product pt pt)))
+                  (setf result-tp (add-matrices result-tp tp)))
+              finally (return result-tp))
+           (/ num-points))))
+    covariance))

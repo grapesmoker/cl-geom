@@ -55,6 +55,24 @@ first point, resulting in a polyline."
       (setf (polygon-points new-polygon) (reverse (polygon-points new-polygon)))
       new-polygon)))
 
+(defmethod geom= ((p1 polygon) (p2 polygon) &key (tolerance 1e-8))
+  "Compare the two polygons point-by-point."
+  (let ((pt-set1 (cs::polygon-points p1))
+        (pt-set2 (cs::polygon-points p2)))
+    (cond ((not (= (length pt-set1) (length pt-set2)))
+           nil)
+          (t
+           (loop
+              for p in pt-set1
+              do
+                (setf pt-set1 (remove p pt-set1))
+                (setf pt-set2 (remove p pt-set2 :test #'(lambda(x y)
+                                                          (geom= x y :tolerance tolerance))))
+              if (not (= (length pt-set1) (length pt-set2)))
+              do (return nil)
+              finally (return t))))))
+
+
 (defun load-polygon-from-file (filename)
   (with-open-file (stream filename)
     (make-polygon 
@@ -71,13 +89,13 @@ first point, resulting in a polyline."
 (defmethod polygon-subsection ((p polygon) (start-segment fixnum) (number-of-segments fixnum) &optional (closed nil))
   "Return a polyline beginning with the segment indexed start and ending with the segment end, inclusive."
   (cond ((> number-of-segments (length (polygon-lines p)))
-	 (make-polygon (polygon-lines p)))
-	((> (+ start-segment number-of-segments) (length (polygon-lines p)))
-	 (make-polygon (subseq (comb:rotate-list (polygon-lines p)
-						 (- start-segment (length (polygon-lines p))))
-			       0 number-of-segments)))
-	(t 
-	 (make-polygon (subseq (polygon-lines p) start-segment (+ start-segment number-of-segments)) closed))))
+ 	 (make-polygon (polygon-lines p)))
+ 	((> (+ start-segment number-of-segments) (length (polygon-lines p)))
+ 	 (make-polygon (subseq (comb:rotate-list (polygon-lines p)
+ 						 (- start-segment (length (polygon-lines p))))
+ 			       0 number-of-segments)))
+ 	(t 
+ 	 (make-polygon (subseq (polygon-lines p) start-segment (+ start-segment number-of-segments)) closed))))
 
 (defmethod polygon->graph ((pol polygon))
   "Transform the polygon into a graph whose nodes are points and whose
@@ -213,8 +231,113 @@ weighted edges are line segments connecting those points"
      with current-ls = (first (polygon-lines p))
      for ls in (rest (polygon-lines p))
      if (not (eq (end-point current-ls)
-		(start-point ls)))
+                 (start-point ls)))
      do (setf valid-flag nil)
      do (setf current-ls ls)
      finally
        (return valid-flag)))
+
+(defmethod is-geom-valid? ((p polygon))
+  (and (every #'is-geom-valid? (polygon-points p))
+       (every #'is-geom-valid? (polygon-lines p))))
+
+(defmethod winding-number ((poly polygon) (p point))
+  "Compute the winding number of the polygon around a point p, using the Miranda algorithm:
+ http://www.engr.colostate.edu/~dga/dga/papers/point_in_polygon.pdf"
+  (let* ((shifted-vertices (mapcar #'(lambda (v)
+                                       (vector->point (v- (point->vector v)
+                                                          (point->vector p))))
+                                   (polygon-points poly))))
+    (loop
+       with w = 0
+       for current-vertex in (butlast shifted-vertices)
+       for next-vertex in (rest shifted-vertices)
+       do
+         (cond ((< (* (point-y current-vertex)
+                      (point-y next-vertex)) 0)
+                (let ((r (+ (point-x current-vertex)
+                            (/ (* (- (point-x next-vertex)
+                                     (point-x current-vertex))
+                                  (point-y current-vertex))
+                               (- (point-y current-vertex)
+                                  (point-y next-vertex))))))
+                  (if (> r 0)
+                      (if (< (point-y current-vertex) 0)
+                          (incf w)
+                          (decf w)))))
+               ((and (= (point-y current-vertex) 0)
+                     (> (point-x current-vertex) 0))
+                (if (> (point-y next-vertex) 0)
+                    (incf w 0.5)
+                    (decf w 0.5)))
+               ((and (= (point-y next-vertex) 0)
+                     (> (point-x next-vertex) 0))
+                (if (< (point-y current-vertex) 0)
+                    (incf w 0.5)
+                    (decf w 0.5))))
+       finally (return w))))
+
+
+(defmethod point-in-polygon? ((poly polygon) (p point) &optional (algorithm :ray-crossing))
+  (case algorithm
+    (:ray-crossing
+     (let ((ray-length (polygon-perimeter poly)))
+       (oddp
+        (length
+         (remove nil (mapcar #'(lambda (ls) (intersect-parametric? ls (make-line p (make-point ray-length (point-y p) 0))))
+                             (polygon-lines poly)))))))
+    (:winding-number
+     (not (= (winding-number poly p) 0)))))
+
+(defmethod copy-geometry ((p polygon))
+  (make-polygon (mapcar #'copy-geometry (polygon-points p))))
+
+(defmethod insert-point-between ((poly polygon) (p1 point) (p2 point) (new-point point) &optional (tolerance 1e-8))
+  "Insert new-point between p1 and p2 in polygon poly. Return the point list. Note that the points
+ passed to this function MUST come from the polygon itself."
+  ;; how do we deal with the problem of inserting successive colinear points?
+  (let* ((pts (polygon-points poly))
+         (p1-index (position p1 pts :test #'(lambda (x y) (geom= x y :tolerance tolerance))))
+         (p2-index (position p2 pts :test #'(lambda (x y) (geom= x y :tolerance tolerance)))))
+    (concatenate 'list
+                 (subseq pts 0 (+ p1-index 1))
+                 (list new-point)
+                 (subseq pts (+ p1-index 1)))))
+
+(defmethod add-point-to-boundary ((poly polygon) (p point) &optional (tolerance 1e-8))
+  (let* ((pts (polygon-points poly))
+         (closest-line
+          (argmin #'(lambda (ls)
+                      (distance ls p))
+                  (polygon-lines poly)))
+         (start-point-index (position (start-point closest-line)
+                                      pts :test #'(lambda (x y) (geom= x y :tolerance tolerance))))
+         (end-point-index (position (end-point closest-line)
+                                    pts :test #'(lambda (x y) (geom= x y :tolerance tolerance)))))
+    (when (< (distance closest-line p) tolerance)
+      (concatenate 'list
+                   (subseq pts 0 (+ start-point-index 1))
+                   (list p)
+                   (subseq pts end-point-index)))))
+
+(defmethod insert-point-between* ((poly polygon) (p1 point) (p2 point) (new-point point) &optional (tolerance 1e-8))
+  "Just like the insert-point-between function but modifies the polygon."
+   (setf poly (make-polygon (insert-point-between poly p1 p2 new-point tolerance))))
+
+(defmethod closest-point-on-polygon-to-point ((pol polygon) (p point))
+  (loop
+     with min-point = nil
+     with min-dist = nil
+     for ls in (polygon-lines pol)
+     do
+       (multiple-value-bind (dist closest-point)
+           (distance ls p)
+         ;;(format t "min-point: ~A, min-dist: ~F, dist: ~F, closest-point: ~A~%" min-point min-dist dist closest-point)
+         (when (or (and (null min-point)
+                        (null min-dist))
+                   (< dist min-dist))
+           (setf min-point closest-point)
+           (setf min-dist dist)))
+     finally (return min-point)))
+
+
