@@ -42,6 +42,10 @@ and then load up your favorite Lisp and do:
 
 Although in principle this should work on any Common Lisp, it has only been tested on SBCL.
 
+## Usage
+
+You can instantiate objects directly either via `make-instance` or the helper functions provided for that purpose, e.g. `make-point`, `make-polygon`, etc. cl-geom currently supports computation with vectors, quaternions, and matrices. Algorithm functions can also be called with the appropriate arguments.
+
 ## Future work
 
 Lots of work remains to be done. Most of the current algorithms are 2D only, which is a limitation. A nonexhaustive list of things that are on the docket to add to this library:
