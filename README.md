@@ -55,4 +55,4 @@ Lots of work remains to be done. Most of the current algorithms are 2D only, whi
 - Voronoi diagrams
 - visualization (either using OpenGl or Cairo)
 
-This is a work in progress and not intended for widespread use just yet.
+cl-geom is a work in progress, with all the warts that entails.
